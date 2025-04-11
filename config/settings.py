@@ -1,10 +1,9 @@
 # Default OSRM API settings
 DEFAULT_OSRM_API_SETTINGS = {
-    "ACCESS_TOKEN": "",  # Will be provided by user
+    "ACCESS_TOKEN": "", 
     "BASE_URL": "https://mapbox-osrm-proxy.d.gcdev.swatrider.com/tdroute/v1/",
     "PROFILES": {
-        "truck_staticth": "truck_staticth",
-        "lotus_thtruckexp": "lotus_thtruckexp"
+        "van": "van"
     }
 }
 
