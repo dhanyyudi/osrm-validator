@@ -1,0 +1,27 @@
+osrm-validator/
+├── app.py                  # Main Streamlit application file
+├── config/                 # Application configuration
+│   ├── __init__.py
+│   └── settings.py         # Default settings and constants
+├── utils/                  # General utility functions
+│   ├── __init__.py
+│   └── helpers.py          # Helper functions
+├── modules/                # Core functional modules
+│   ├── __init__.py
+│   ├── data_cleaning/      # Data cleaning module
+│   │   ├── __init__.py
+│   │   └── cleaner.py      # Data cleaning functions
+│   ├── osrm/               # OSRM validation module
+│   │   ├── __init__.py
+│   │   ├── validator.py    # OSRM validation functions
+│   │   └── distance.py     # Distance calculation functions
+│   └── analysis/           # Analysis module
+│       ├── __init__.py
+│       └── analyzer.py     # Analysis functions
+└── ui/                     # UI components
+    ├── __init__.py
+    ├── data_upload.py      # Data upload UI
+    ├── validation.py       # Validation UI
+    └── analysis.py         # Analysis UI
+├── requirements.txt        # Dependencies
+└── README.md               # Documentation
