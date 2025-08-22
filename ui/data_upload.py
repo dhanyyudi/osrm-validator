@@ -179,6 +179,13 @@ def show_processed_data_upload():
                 # This is a validation result file
                 st.info("Uploaded file is a validation result. Data will be available in the Analysis tab.")
                 
+                # Convert numeric columns to proper type for analysis
+                numeric_cols = ['origin_lon', 'origin_lat', 'dest_lon', 'dest_lat', 
+                               'last_route_lon', 'last_route_lat', 'distance_to_dest', 'retries']
+                for col in numeric_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                
                 # Save to session state for analysis
                 st.session_state[SESSION_KEYS["VALIDATION_RESULTS"]] = df
                 
@@ -186,15 +193,34 @@ def show_processed_data_upload():
                 st.success("Validation results loaded. Please open the 'Analysis' tab to view the analysis.")
             else:
                 # Check if data has required columns for validation
-                has_columns, missing_columns = check_required_columns(df, 
-                                                                   ['origin_lon', 'origin_lat', 'dest_lon', 'dest_lat'])
+                coord_columns = ['origin_lon', 'origin_lat', 'dest_lon', 'dest_lat']
+                has_columns, missing_columns = check_required_columns(df, coord_columns)
                 
                 if not has_columns:
                     st.error(f"Data is missing required coordinate columns: {', '.join(missing_columns)}")
                 else:
+                    # IMPORTANT: Convert coordinate columns to numeric type
+                    for col in coord_columns:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    # Check for rows with invalid coordinates after conversion
+                    invalid_coords = df[coord_columns].isnull().any(axis=1)
+                    if invalid_coords.any():
+                        st.warning(f"Found {invalid_coords.sum()} rows with invalid coordinates. These will be removed.")
+                        df = df[~invalid_coords]
+                    
+                    # Display data type information
+                    st.info("Data types after processing:")
+                    dtype_info = pd.DataFrame({
+                        'Column': coord_columns,
+                        'Type': [str(df[col].dtype) for col in coord_columns]
+                    })
+                    st.dataframe(dtype_info)
+                    
                     # Save to session state for validation
                     st.session_state[SESSION_KEYS["PREPARED_DATA"]] = df
                     
-                    st.success("Data loaded and ready for validation. Please open the 'OSRM Validation' tab.")
+                    st.success(f"Data loaded and ready for validation. {len(df)} valid routes available. Please open the 'OSRM Validation' tab.")
         except Exception as e:
             st.error(f"Error reading file: {str(e)}")
