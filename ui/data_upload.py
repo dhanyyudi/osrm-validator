@@ -207,7 +207,12 @@ def show_processed_data_upload():
                     # Check for rows with invalid coordinates after conversion
                     invalid_coords = df[coord_columns].isnull().any(axis=1)
                     if invalid_coords.any():
-                        st.warning(f"Found {invalid_coords.sum()} rows with invalid coordinates. These will be removed.")
+                        # Show which rows have invalid coordinates
+                        invalid_rows = df[invalid_coords][['store_location', 'store_number'] + coord_columns] if 'store_location' in df.columns else df[invalid_coords][coord_columns]
+                        st.warning(f"Found {invalid_coords.sum()} row(s) with invalid/missing coordinates. These will be removed.")
+                        with st.expander("View invalid rows"):
+                            st.dataframe(invalid_rows)
+                        # Remove invalid rows
                         df = df[~invalid_coords]
                     
                     # Display data type information
