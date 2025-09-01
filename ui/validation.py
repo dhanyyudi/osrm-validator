@@ -208,6 +208,16 @@ def setup_osrm_parameters():
     else:
         api_settings = DEFAULT_OSRM_API_SETTINGS.copy()
     
+    # Initialize session state for start time if not exists
+    if "start_time_option" not in st.session_state:
+        st.session_state.start_time_option = "current"
+    if "custom_start_date" not in st.session_state:
+        st.session_state.custom_start_date = datetime.now().date()
+    if "custom_start_time" not in st.session_state:
+        st.session_state.custom_start_time = datetime.now().time()
+    if "time_offset_hours" not in st.session_state:
+        st.session_state.time_offset_hours = 0
+    
     # Display parameter inputs with existing values
     with st.expander("OSRM API Parameters", expanded=True):
         col1, col2 = st.columns(2)
@@ -253,28 +263,50 @@ def setup_osrm_parameters():
             }
         )
         
-        # Start Time Configuration - SIMPLE VERSION
+        # Start Time Configuration
         st.subheader("Start Time Parameter")
         
-        # Simple radio button for start time
-        start_time_choice = st.radio(
+        # Use session state for persistent values
+        start_time_option = st.radio(
             "Start Time Option",
             ["Use Current Time", "Use Custom Time", "Add to Custom Parameters"],
-            index=0
+            index=["Use Current Time", "Use Custom Time", "Add to Custom Parameters"].index(st.session_state.start_time_option) if st.session_state.start_time_option in ["Use Current Time", "Use Custom Time", "Add to Custom Parameters"] else 0,
+            key="start_time_radio"
         )
         
-        if start_time_choice == "Use Custom Time":
+        # Update session state
+        if start_time_option == "Use Current Time":
+            st.session_state.start_time_option = "current"
+        elif start_time_option == "Use Custom Time":
+            st.session_state.start_time_option = "custom"
+        else:
+            st.session_state.start_time_option = "manual"
+        
+        if start_time_option == "Use Custom Time":
             col1, col2 = st.columns(2)
             with col1:
-                custom_date = st.date_input("Date", value=datetime.now().date())
+                custom_date = st.date_input(
+                    "Date", 
+                    value=st.session_state.custom_start_date,
+                    key="custom_date_input"
+                )
+                st.session_state.custom_start_date = custom_date
+                
             with col2:
-                custom_time = st.time_input("Time", value=datetime.now().time())
+                custom_time = st.time_input(
+                    "Time", 
+                    value=st.session_state.custom_start_time,
+                    key="custom_time_input"
+                )
+                st.session_state.custom_start_time = custom_time
             
+            # Combine date and time
             custom_datetime = datetime.combine(custom_date, custom_time)
             start_time_value = custom_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')
+            
             st.code(f"start_time: {start_time_value}")
             
-        elif start_time_choice == "Add to Custom Parameters":
+        elif start_time_option == "Add to Custom Parameters":
             st.info("Add 'start_time' parameter manually in Custom Parameters section below")
             start_time_value = None
             
@@ -306,6 +338,30 @@ def setup_osrm_parameters():
             }
         )
         
+        # Helper section for start_time
+        if start_time_option == "Add to Custom Parameters":
+            st.info("💡 **Quick Add start_time:**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("Current Time"):
+                    current_time = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
+                    st.code(f"Parameter: start_time\nValue: {current_time}")
+            
+            with col2:
+                offset_hours = st.number_input("Hours Offset", value=0, min_value=-24, max_value=24, key="offset_input")
+                if st.button("Apply Offset"):
+                    offset_datetime = datetime.now() + timedelta(hours=offset_hours)
+                    offset_time_str = offset_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')
+                    st.code(f"Parameter: start_time\nValue: {offset_time_str}")
+            
+            with col3:
+                if st.button("Custom Time"):
+                    # Use the values from session state
+                    custom_datetime = datetime.combine(st.session_state.custom_start_date, st.session_state.custom_start_time)
+                    custom_time_str = custom_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')
+                    st.code(f"Parameter: start_time\nValue: {custom_time_str}")
+        
         # Save button
         if st.button("Save OSRM API Configuration"):
             # Convert edited profiles back to dictionary
@@ -320,7 +376,7 @@ def setup_osrm_parameters():
                 if row["Parameter"]:
                     new_custom_params[row["Parameter"]] = row["Value"]
             
-            # Update settings - minimal version
+            # Build new settings
             new_settings = {
                 "BASE_URL": base_url,
                 "ACCESS_TOKEN": access_token,
@@ -328,11 +384,23 @@ def setup_osrm_parameters():
                 "CUSTOM_PARAMS": new_custom_params
             }
             
-            # Add start_time if configured
-            if start_time_value:
+            # Add start_time if configured via UI (not manual)
+            if start_time_option != "Add to Custom Parameters" and 'start_time_value' in locals():
                 new_settings["START_TIME"] = start_time_value
             
             # Save to session state
             st.session_state[SESSION_KEYS["OSRM_API_SETTINGS"]] = new_settings
             
             st.success("OSRM API settings saved successfully!")
+            
+            # Show what was saved
+            st.write("**Saved Configuration:**")
+            if "START_TIME" in new_settings:
+                st.write(f"- Start Time: {new_settings['START_TIME']}")
+            if new_custom_params:
+                st.write("- Custom Parameters:")
+                for param, value in new_custom_params.items():
+                    st.write(f"  - {param}: {value}")
+    
+    else:
+        st.warning("No data prepared yet. Please upload and prepare data in the 'Data Upload & Preparation' tab first.")
