@@ -1,10 +1,19 @@
 # Default OSRM API settings
 DEFAULT_OSRM_API_SETTINGS = {
     "ACCESS_TOKEN": "", 
-    "BASE_URL": "https://mapbox-osrm-proxy.d.gcdev.swatrider.com/tdroute/v1/",
+    "BASE_URL": "",
     "PROFILES": {
-        "van": "van"
-    }
+        "van": "van",
+        "truck": "truck",
+        "car": "car",
+        "bike": "bike",
+        "foot": "foot"
+    },
+    "OVERVIEW": "false",
+    "STEPS": "true",
+    "GEOMETRIES": "polyline6",
+    "APPROACHES": "unrestricted;unrestricted",
+    "CUSTOM_PARAMS": {}
 }
 
 # Default settings for OSRM validation
@@ -37,4 +46,11 @@ SESSION_KEYS = {
     "VALIDATION_STATS": "validation_stats",
     "PROBLEMATIC_ROUTES": "problematic_routes",
     "OSRM_API_SETTINGS": "osrm_api_settings"
+}
+
+# Start time configuration options
+START_TIME_OPTIONS = {
+    "CURRENT": "Use current time",
+    "CUSTOM": "Use custom time",
+    "OFFSET": "Use time offset"
 }

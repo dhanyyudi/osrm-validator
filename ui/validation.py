@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
+from datetime import datetime, timedelta
 from config.settings import DEFAULT_OSRM_API_SETTINGS, DEFAULT_SETTINGS, SESSION_KEYS
 from modules.osrm.validator import validate_routes
 from utils.helpers import dataframe_to_csv, get_timestamp
@@ -87,6 +88,60 @@ def show_validation():
                     help="Base delay for exponential backoff retry strategy"
                 )
         
+        # NEW: Start Time Configuration
+        with st.expander("Start Time Configuration"):
+            st.write("Configure the start time parameter for OSRM API requests")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                use_current_time = st.checkbox(
+                    "Use Current Time", 
+                    value=True,
+                    help="Use current timestamp for all requests"
+                )
+                
+                use_custom_time = st.checkbox(
+                    "Use Custom Time",
+                    value=False,
+                    help="Specify a custom start time for all requests"
+                )
+            
+            with col2:
+                if use_custom_time:
+                    custom_date = st.date_input(
+                        "Custom Date",
+                        value=datetime.now().date(),
+                        help="Select date for start time"
+                    )
+                    
+                    custom_time = st.time_input(
+                        "Custom Time",
+                        value=datetime.now().time(),
+                        help="Select time for start time"
+                    )
+                    
+                    # Combine date and time
+                    custom_datetime = datetime.combine(custom_date, custom_time)
+                    st.info(f"Custom start time: {custom_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')}")
+                
+                # Option for offset from current time
+                time_offset_hours = st.number_input(
+                    "Time Offset (hours)",
+                    min_value=-24,
+                    max_value=24,
+                    value=0,
+                    help="Offset in hours from current time (negative for past, positive for future)"
+                )
+            
+            # Display effective start time
+            if use_custom_time and 'custom_datetime' in locals():
+                effective_start_time = custom_datetime
+            else:
+                effective_start_time = datetime.now() + timedelta(hours=time_offset_hours)
+            
+            st.info(f"Effective start time for validation: {effective_start_time.strftime('%Y-%m-%dT%H:%M:%S+00:00')}")
+        
         # Validation control
         st.subheader("Validation Control")
         
@@ -131,6 +186,16 @@ def show_validation():
                 st.error("Please provide an Access Token in OSRM API settings.")
                 return
             
+            # Prepare start time parameter
+            if use_custom_time and 'custom_datetime' in locals():
+                start_time_param = custom_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')
+            else:
+                start_time_param = (datetime.now() + timedelta(hours=time_offset_hours)).strftime('%Y-%m-%dT%H:%M:%S+00:00')
+            
+            # Add start_time to API settings
+            api_settings_with_time = api_settings.copy()
+            api_settings_with_time["START_TIME"] = start_time_param
+            
             # Use full data or sample based on checkbox
             validation_data = prepared_data.sample(sample_count) if use_sample else prepared_data
             
@@ -138,6 +203,7 @@ def show_validation():
             st.info(f"""
             Starting validation with the following settings:
             - OSRM Profile: {api_profile}
+            - Start Time: {start_time_param}
             - Data: {"Sample of " + str(sample_count) + " routes" if use_sample else "All data (" + str(len(prepared_data)) + " routes)"}
             - Batch Size: {batch_size}
             - Thread Workers: {max_workers}
@@ -153,7 +219,7 @@ def show_validation():
                     # Run validation
                     results_df, validation_stats = validate_routes(
                         validation_data, 
-                        api_settings,
+                        api_settings_with_time,
                         api_profile, 
                         batch_size=batch_size, 
                         max_workers=max_workers, 
@@ -252,19 +318,99 @@ def setup_osrm_parameters():
             }
         )
         
+        # Additional OSRM Parameters Section
+        st.subheader("Additional OSRM Parameters")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Overview parameter
+            overview_param = st.selectbox(
+                "Overview",
+                ["false", "full", "simplified"],
+                index=0,
+                help="Geometry overview level (false=none, full=detailed, simplified=reduced)"
+            )
+            
+            # Steps parameter
+            steps_param = st.selectbox(
+                "Steps",
+                ["true", "false"],
+                index=0,
+                help="Include turn-by-turn instructions"
+            )
+        
+        with col2:
+            # Geometries parameter
+            geometries_param = st.selectbox(
+                "Geometries",
+                ["polyline6", "polyline", "geojson"],
+                index=0,
+                help="Geometry format for route coordinates"
+            )
+            
+            # Approaches parameter
+            approaches_param = st.text_input(
+                "Approaches",
+                value="unrestricted;unrestricted",
+                help="Approach constraints for start and end points"
+            )
+        
+        # Custom parameters section
+        st.subheader("Custom Parameters")
+        
+        # Allow users to add custom parameters
+        custom_params = api_settings.get("CUSTOM_PARAMS", {})
+        
+        # Create DataFrame for custom parameters
+        custom_param_data = [{"Parameter": k, "Value": v} for k, v in custom_params.items()]
+        if not custom_param_data:
+            custom_param_data = [{"Parameter": "", "Value": ""}]
+        
+        custom_param_df = pd.DataFrame(custom_param_data)
+        
+        # Display editable custom parameters
+        edited_custom_params = st.data_editor(
+            custom_param_df,
+            num_rows="dynamic",
+            key="custom_params_editor",
+            column_config={
+                "Parameter": st.column_config.TextColumn(
+                    "Parameter Name",
+                    help="Custom parameter name (e.g., 'alternatives', 'continue_straight')"
+                ),
+                "Value": st.column_config.TextColumn(
+                    "Parameter Value",
+                    help="Parameter value"
+                )
+            }
+        )
+        
         # Save button
         if st.button("Save OSRM API Configuration"):
             # Convert edited profiles back to dictionary
-            new_profiles = {row["Name"]: row["Value"] for _, row in edited_profile_df.iterrows()}
+            new_profiles = {row["Name"]: row["Value"] for _, row in edited_profile_df.iterrows() if row["Name"]}
+            
+            # Convert edited custom parameters back to dictionary
+            new_custom_params = {row["Parameter"]: row["Value"] for _, row in edited_custom_params.iterrows() if row["Parameter"]}
             
             # Update settings
             new_settings = {
                 "BASE_URL": base_url,
                 "ACCESS_TOKEN": access_token,
-                "PROFILES": new_profiles
+                "PROFILES": new_profiles,
+                "OVERVIEW": overview_param,
+                "STEPS": steps_param,
+                "GEOMETRIES": geometries_param,
+                "APPROACHES": approaches_param,
+                "CUSTOM_PARAMS": new_custom_params
             }
             
             # Save to session state
             st.session_state[SESSION_KEYS["OSRM_API_SETTINGS"]] = new_settings
             
             st.success("OSRM API settings saved successfully!")
+            
+            # Display current configuration
+            with st.expander("Current Configuration Preview"):
+                st.json(new_settings)

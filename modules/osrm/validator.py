@@ -9,6 +9,8 @@ from tqdm import tqdm
 from utils.helpers import add_retry_delay
 from modules.osrm.distance import haversine
 from config.settings import SESSION_KEYS
+from datetime import datetime
+from urllib.parse import urlencode
 
 def get_last_route_coordinate(route_data):
     """
@@ -55,6 +57,53 @@ def get_last_route_coordinate(route_data):
         st.error(f"Error extracting last coordinate: {e}")
         return None
 
+def build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, profile_value):
+    """
+    Build OSRM API URL with all parameters
+    
+    Args:
+        origin_lon, origin_lat: Origin coordinates
+        dest_lon, dest_lat: Destination coordinates
+        api_settings (dict): OSRM API settings
+        profile_value (str): OSRM profile value
+        
+    Returns:
+        str: Complete OSRM API URL
+    """
+    base_url = api_settings.get("BASE_URL", "")
+    access_token = api_settings.get("ACCESS_TOKEN", "")
+    
+    coordinates = f"{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
+    
+    # Build query parameters
+    params = {
+        "access_token": access_token,
+        "overview": api_settings.get("OVERVIEW", "false"),
+        "steps": api_settings.get("STEPS", "true"),
+        "geometries": api_settings.get("GEOMETRIES", "polyline6"),
+        "approaches": api_settings.get("APPROACHES", "unrestricted;unrestricted")
+    }
+    
+    # Add start_time parameter
+    if "START_TIME" in api_settings:
+        params["start_time"] = api_settings["START_TIME"]
+    else:
+        # Default to current time with URL encoding
+        current_time = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
+        params["start_time"] = current_time
+    
+    # Add custom parameters if they exist
+    custom_params = api_settings.get("CUSTOM_PARAMS", {})
+    for param_name, param_value in custom_params.items():
+        if param_name and param_value:  # Only add non-empty parameters
+            params[param_name] = param_value
+    
+    # Build the URL
+    base_url_with_profile = f"{base_url}{profile_value}/{coordinates}"
+    query_string = urlencode(params)
+    
+    return f"{base_url_with_profile}?{query_string}"
+
 def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, jitter=0.5):
     """
     Process a single route with OSRM API
@@ -70,20 +119,30 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
     Returns:
         dict: Results of route processing
     """
-    origin_lon = row['origin_lon']
-    origin_lat = row['origin_lat']
-    dest_lon = row['dest_lon']
-    dest_lat = row['dest_lat']
+    try:
+        origin_lon = float(row['origin_lon'])
+        origin_lat = float(row['origin_lat'])
+        dest_lon = float(row['dest_lon'])
+        dest_lat = float(row['dest_lat'])
+    except (ValueError, TypeError) as e:
+        return {
+            'origin_lon': row.get('origin_lon'),
+            'origin_lat': row.get('origin_lat'),
+            'dest_lon': row.get('dest_lon'),
+            'dest_lat': row.get('dest_lat'),
+            'last_route_lon': None,
+            'last_route_lat': None,
+            'distance_to_dest': None,
+            'status': f'error: invalid coordinates - {str(e)}',
+            'retries': 0
+        }
     
-    # Prepare request URL
-    access_token = api_settings.get("ACCESS_TOKEN", "")
-    base_url = api_settings.get("BASE_URL", "")
+    # Get the actual profile value from the profiles dictionary
+    profiles = api_settings.get("PROFILES", {})
+    profile_value = profiles.get(api_profile, api_profile)  # Use api_profile as fallback if not in dict
     
-    # Use current timestamp for start_time parameter
-    current_time = time.strftime('%Y-%m-%dT%H:%M:%S%%2B00:00')
-    
-    coordinates = f"{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
-    url = f"{base_url}{api_profile}/{coordinates}?overview=false&steps=true&access_token={access_token}&approaches=unrestricted;unrestricted&geometries=polyline6&start_time={current_time}"
+    # Build the complete URL with all parameters
+    url = build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, profile_value)
     
     # Initialize retry counter
     retry_count = 0
@@ -113,7 +172,8 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                     'last_route_lat': last_lat,
                     'distance_to_dest': distance,
                     'status': 'success',
-                    'retries': retry_count
+                    'retries': retry_count,
+                    'used_url': url  # For debugging purposes
                 }
             else:
                 return {
@@ -125,7 +185,8 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                     'last_route_lat': None,
                     'distance_to_dest': None,
                     'status': 'error: could not extract last coordinate',
-                    'retries': retry_count
+                    'retries': retry_count,
+                    'used_url': url
                 }
         
         except (requests.exceptions.RequestException, 
@@ -153,7 +214,8 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                 'last_route_lat': None,
                 'distance_to_dest': None,
                 'status': f'error: {str(e)}',
-                'retries': retry_count
+                'retries': retry_count,
+                'used_url': url
             }
         
         except Exception as e:
@@ -167,7 +229,8 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                 'last_route_lat': None,
                 'distance_to_dest': None,
                 'status': f'error: unexpected - {str(e)}',
-                'retries': retry_count
+                'retries': retry_count,
+                'used_url': url
             }
 
 def process_batch(batch_df, batch_index, total_batches, api_settings, api_profile, max_workers, request_delay):
@@ -263,6 +326,17 @@ def validate_routes(df, api_settings, api_profile, batch_size=200, max_workers=7
     total_rows = len(df)
     total_batches = (total_rows + batch_size - 1) // batch_size
     
+    # Display API configuration being used
+    st.info(f"""
+    Using OSRM Configuration:
+    - Base URL: {api_settings.get('BASE_URL', 'Not set')}
+    - Profile: {api_profile}
+    - Start Time: {api_settings.get('START_TIME', 'Current time')}
+    - Overview: {api_settings.get('OVERVIEW', 'false')}
+    - Steps: {api_settings.get('STEPS', 'true')}
+    - Geometries: {api_settings.get('GEOMETRIES', 'polyline6')}
+    """)
+    
     st.info(f"Starting validation for {total_rows} routes with batch size {batch_size}...")
     st.info(f"Using {max_workers} workers, {request_delay}s delay between requests")
     
@@ -321,7 +395,7 @@ def validate_routes(df, api_settings, api_profile, batch_size=200, max_workers=7
                 'failed_routes': overall_errors,
                 'success_rate': overall_success / total_rows * 100,
                 'total_retries': overall_retries,
-                'avg_retries': overall_retries / total_rows
+                'avg_retries': overall_retries / total_routes
             }
             
             st.success(f"Validation complete - {overall_success} successful, {overall_errors} failed")
