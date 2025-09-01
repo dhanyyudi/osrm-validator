@@ -4,10 +4,6 @@ DEFAULT_OSRM_API_SETTINGS = {
     "BASE_URL": "",
     "PROFILES": {
         "van": "van",
-        "truck": "truck",
-        "car": "car",
-        "bike": "bike",
-        "foot": "foot"
     },
     "OVERVIEW": "false",
     "STEPS": "true",
@@ -46,11 +42,4 @@ SESSION_KEYS = {
     "VALIDATION_STATS": "validation_stats",
     "PROBLEMATIC_ROUTES": "problematic_routes",
     "OSRM_API_SETTINGS": "osrm_api_settings"
-}
-
-# Start time configuration options
-START_TIME_OPTIONS = {
-    "CURRENT": "Use current time",
-    "CUSTOM": "Use custom time",
-    "OFFSET": "Use time offset"
 }

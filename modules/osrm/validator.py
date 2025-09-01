@@ -54,7 +54,6 @@ def get_last_route_coordinate(route_data):
         
         return None
     except Exception as e:
-        st.error(f"Error extracting last coordinate: {e}")
         return None
 
 def build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, profile_value):
@@ -84,18 +83,19 @@ def build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, pro
         "approaches": api_settings.get("APPROACHES", "unrestricted;unrestricted")
     }
     
-    # Add start_time parameter
+    # Add start_time parameter - priority order: START_TIME > custom_params > current time
     if "START_TIME" in api_settings:
         params["start_time"] = api_settings["START_TIME"]
+    elif "start_time" in api_settings.get("CUSTOM_PARAMS", {}):
+        params["start_time"] = api_settings["CUSTOM_PARAMS"]["start_time"]
     else:
-        # Default to current time with URL encoding
-        current_time = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
-        params["start_time"] = current_time
+        # Default to current time
+        params["start_time"] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
     
-    # Add custom parameters if they exist
+    # Add other custom parameters (excluding start_time since we handled it above)
     custom_params = api_settings.get("CUSTOM_PARAMS", {})
     for param_name, param_value in custom_params.items():
-        if param_name and param_value:  # Only add non-empty parameters
+        if param_name and param_value and param_name != "start_time":  # Skip start_time
             params[param_name] = param_value
     
     # Build the URL
@@ -139,7 +139,7 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
     
     # Get the actual profile value from the profiles dictionary
     profiles = api_settings.get("PROFILES", {})
-    profile_value = profiles.get(api_profile, api_profile)  # Use api_profile as fallback if not in dict
+    profile_value = profiles.get(api_profile, api_profile)
     
     # Build the complete URL with all parameters
     url = build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, profile_value)
@@ -172,8 +172,7 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                     'last_route_lat': last_lat,
                     'distance_to_dest': distance,
                     'status': 'success',
-                    'retries': retry_count,
-                    'used_url': url  # For debugging purposes
+                    'retries': retry_count
                 }
             else:
                 return {
@@ -185,8 +184,7 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                     'last_route_lat': None,
                     'distance_to_dest': None,
                     'status': 'error: could not extract last coordinate',
-                    'retries': retry_count,
-                    'used_url': url
+                    'retries': retry_count
                 }
         
         except (requests.exceptions.RequestException, 
@@ -214,8 +212,7 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                 'last_route_lat': None,
                 'distance_to_dest': None,
                 'status': f'error: {str(e)}',
-                'retries': retry_count,
-                'used_url': url
+                'retries': retry_count
             }
         
         except Exception as e:
@@ -229,8 +226,7 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
                 'last_route_lat': None,
                 'distance_to_dest': None,
                 'status': f'error: unexpected - {str(e)}',
-                'retries': retry_count,
-                'used_url': url
+                'retries': retry_count
             }
 
 def process_batch(batch_df, batch_index, total_batches, api_settings, api_profile, max_workers, request_delay):
@@ -327,11 +323,13 @@ def validate_routes(df, api_settings, api_profile, batch_size=200, max_workers=7
     total_batches = (total_rows + batch_size - 1) // batch_size
     
     # Display API configuration being used
+    start_time_display = api_settings.get('START_TIME') or api_settings.get('CUSTOM_PARAMS', {}).get('start_time', 'Current time')
+    
     st.info(f"""
     Using OSRM Configuration:
     - Base URL: {api_settings.get('BASE_URL', 'Not set')}
     - Profile: {api_profile}
-    - Start Time: {api_settings.get('START_TIME', 'Current time')}
+    - Start Time: {start_time_display}
     - Overview: {api_settings.get('OVERVIEW', 'false')}
     - Steps: {api_settings.get('STEPS', 'true')}
     - Geometries: {api_settings.get('GEOMETRIES', 'polyline6')}
@@ -395,7 +393,7 @@ def validate_routes(df, api_settings, api_profile, batch_size=200, max_workers=7
                 'failed_routes': overall_errors,
                 'success_rate': overall_success / total_rows * 100,
                 'total_retries': overall_retries,
-                'avg_retries': overall_retries / total_routes
+                'avg_retries': overall_retries / total_rows
             }
             
             st.success(f"Validation complete - {overall_success} successful, {overall_errors} failed")
