@@ -4,13 +4,36 @@ import pandas as pd
 import time
 import random
 import streamlit as st
+import numpy as np
+from math import radians, cos, sin, asin, sqrt
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
 from utils.helpers import add_retry_delay
-from modules.osrm.distance import haversine
 from config.settings import SESSION_KEYS
 from datetime import datetime
 from urllib.parse import urlencode
+
+def haversine(lon1, lat1, lon2, lat2):
+    """
+    Calculate the great circle distance between two points 
+    on the earth (specified in decimal degrees)
+    
+    Args:
+        lon1, lat1: Longitude and latitude of point 1
+        lon2, lat2: Longitude and latitude of point 2
+        
+    Returns:
+        float: Distance in meters
+    """
+    # Convert decimal degrees to radians
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+    
+    # Haversine formula
+    dlon = lon2 - lon1 
+    dlat = lat2 - lat1 
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a)) 
+    r = 6371  # Radius of earth in kilometers
+    return c * r * 1000  # Return meters
 
 def get_last_route_coordinate(route_data):
     """
@@ -95,7 +118,7 @@ def build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, pro
     # Add other custom parameters (excluding start_time since we handled it above)
     custom_params = api_settings.get("CUSTOM_PARAMS", {})
     for param_name, param_value in custom_params.items():
-        if param_name and param_value and param_name != "start_time":  # Skip start_time
+        if param_name and param_value and param_name != "start_time":
             params[param_name] = param_value
     
     # Build the URL
@@ -323,7 +346,7 @@ def validate_routes(df, api_settings, api_profile, batch_size=200, max_workers=7
     total_batches = (total_rows + batch_size - 1) // batch_size
     
     # Display API configuration being used
-    start_time_display = api_settings.get('START_TIME') or api_settings.get('CUSTOM_PARAMS', {}).get('start_time', 'Current time')
+    start_time_display = api_settings.get('START_TIME', 'Current time')
     
     st.info(f"""
     Using OSRM Configuration:

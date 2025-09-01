@@ -135,18 +135,14 @@ def show_validation():
             # Use full data or sample based on checkbox
             validation_data = prepared_data.sample(sample_count) if use_sample else prepared_data
             
-            # Display info including start_time if configured
-            start_time_info = ""
-            if "start_time" in api_settings.get("CUSTOM_PARAMS", {}):
-                start_time_info = f"\n- Start Time: {api_settings['CUSTOM_PARAMS']['start_time']}"
-            
+            # Display info
             st.info(f"""
             Starting validation with the following settings:
             - OSRM Profile: {api_profile}
             - Data: {"Sample of " + str(sample_count) + " routes" if use_sample else "All data (" + str(len(prepared_data)) + " routes)"}
             - Batch Size: {batch_size}
             - Thread Workers: {max_workers}
-            - Request Delay: {request_delay} seconds{start_time_info}
+            - Request Delay: {request_delay} seconds
             """)
             
             # Run validation
@@ -295,8 +291,8 @@ def setup_osrm_parameters():
                 help="Approach constraints for start and end points"
             )
         
-        # Start Time Configuration as part of Additional Parameters
-        st.write("**Start Time Parameter**")
+        # Start Time Configuration
+        st.subheader("Start Time Configuration")
         
         col1, col2, col3 = st.columns(3)
         
@@ -308,18 +304,18 @@ def setup_osrm_parameters():
                 help="Choose how to set the start_time parameter"
             )
         
+        start_time_value = ""
+        
         with col2:
             if start_time_option == "custom":
                 custom_date = st.date_input(
                     "Date",
-                    value=datetime.now().date(),
-                    key="start_time_date"
+                    value=datetime.now().date()
                 )
                 
                 custom_time = st.time_input(
                     "Time",
-                    value=datetime.now().time(),
-                    key="start_time_time"
+                    value=datetime.now().time()
                 )
                 
                 # Combine date and time
@@ -370,7 +366,7 @@ def setup_osrm_parameters():
             column_config={
                 "Parameter": st.column_config.TextColumn(
                     "Parameter Name",
-                    help="Custom parameter name (e.g., 'alternatives', 'continue_straight')"
+                    help="Custom parameter name"
                 ),
                 "Value": st.column_config.TextColumn(
                     "Parameter Value",
@@ -382,10 +378,16 @@ def setup_osrm_parameters():
         # Save button
         if st.button("Save OSRM API Configuration"):
             # Convert edited profiles back to dictionary
-            new_profiles = {row["Name"]: row["Value"] for _, row in edited_profile_df.iterrows() if row["Name"]}
+            new_profiles = {}
+            for _, row in edited_profile_df.iterrows():
+                if row["Name"]:
+                    new_profiles[row["Name"]] = row["Value"]
             
             # Convert edited custom parameters back to dictionary
-            new_custom_params = {row["Parameter"]: row["Value"] for _, row in edited_custom_params.iterrows() if row["Parameter"]}
+            new_custom_params = {}
+            for _, row in edited_custom_params.iterrows():
+                if row["Parameter"]:
+                    new_custom_params[row["Parameter"]] = row["Value"]
             
             # Update settings
             new_settings = {
@@ -456,18 +458,14 @@ def setup_osrm_parameters():
             # Use full data or sample based on checkbox
             validation_data = prepared_data.sample(sample_count) if use_sample else prepared_data
             
-            # Display info including start_time if configured
-            start_time_info = ""
-            if api_settings.get("START_TIME"):
-                start_time_info = f"\n- Start Time: {api_settings['START_TIME']}"
-            
+            # Display info
             st.info(f"""
             Starting validation with the following settings:
             - OSRM Profile: {api_profile}
             - Data: {"Sample of " + str(sample_count) + " routes" if use_sample else "All data (" + str(len(prepared_data)) + " routes)"}
             - Batch Size: {batch_size}
             - Thread Workers: {max_workers}
-            - Request Delay: {request_delay} seconds{start_time_info}
+            - Request Delay: {request_delay} seconds
             """)
             
             # Run validation
