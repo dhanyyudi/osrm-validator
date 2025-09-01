@@ -4,36 +4,11 @@ import pandas as pd
 import time
 import random
 import streamlit as st
-import numpy as np
-from math import radians, cos, sin, asin, sqrt
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 from utils.helpers import add_retry_delay
+from modules.osrm.distance import haversine
 from config.settings import SESSION_KEYS
-from datetime import datetime
-from urllib.parse import urlencode
-
-def haversine(lon1, lat1, lon2, lat2):
-    """
-    Calculate the great circle distance between two points 
-    on the earth (specified in decimal degrees)
-    
-    Args:
-        lon1, lat1: Longitude and latitude of point 1
-        lon2, lat2: Longitude and latitude of point 2
-        
-    Returns:
-        float: Distance in meters
-    """
-    # Convert decimal degrees to radians
-    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-    
-    # Haversine formula
-    dlon = lon2 - lon1 
-    dlat = lat2 - lat1 
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a)) 
-    r = 6371  # Radius of earth in kilometers
-    return c * r * 1000  # Return meters
 
 def get_last_route_coordinate(route_data):
     """
@@ -79,54 +54,6 @@ def get_last_route_coordinate(route_data):
     except Exception as e:
         return None
 
-def build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, profile_value):
-    """
-    Build OSRM API URL with all parameters
-    
-    Args:
-        origin_lon, origin_lat: Origin coordinates
-        dest_lon, dest_lat: Destination coordinates
-        api_settings (dict): OSRM API settings
-        profile_value (str): OSRM profile value
-        
-    Returns:
-        str: Complete OSRM API URL
-    """
-    base_url = api_settings.get("BASE_URL", "")
-    access_token = api_settings.get("ACCESS_TOKEN", "")
-    
-    coordinates = f"{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
-    
-    # Build query parameters
-    params = {
-        "access_token": access_token,
-        "overview": api_settings.get("OVERVIEW", "false"),
-        "steps": api_settings.get("STEPS", "true"),
-        "geometries": api_settings.get("GEOMETRIES", "polyline6"),
-        "approaches": api_settings.get("APPROACHES", "unrestricted;unrestricted")
-    }
-    
-    # Add start_time parameter - priority order: START_TIME > custom_params > current time
-    if "START_TIME" in api_settings:
-        params["start_time"] = api_settings["START_TIME"]
-    elif "start_time" in api_settings.get("CUSTOM_PARAMS", {}):
-        params["start_time"] = api_settings["CUSTOM_PARAMS"]["start_time"]
-    else:
-        # Default to current time
-        params["start_time"] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
-    
-    # Add other custom parameters (excluding start_time since we handled it above)
-    custom_params = api_settings.get("CUSTOM_PARAMS", {})
-    for param_name, param_value in custom_params.items():
-        if param_name and param_value and param_name != "start_time":
-            params[param_name] = param_value
-    
-    # Build the URL
-    base_url_with_profile = f"{base_url}{profile_value}/{coordinates}"
-    query_string = urlencode(params)
-    
-    return f"{base_url_with_profile}?{query_string}"
-
 def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, jitter=0.5):
     """
     Process a single route with OSRM API
@@ -142,30 +69,40 @@ def process_route(row, api_settings, api_profile, max_retries=3, base_delay=2, j
     Returns:
         dict: Results of route processing
     """
-    try:
-        origin_lon = float(row['origin_lon'])
-        origin_lat = float(row['origin_lat'])
-        dest_lon = float(row['dest_lon'])
-        dest_lat = float(row['dest_lat'])
-    except (ValueError, TypeError) as e:
-        return {
-            'origin_lon': row.get('origin_lon'),
-            'origin_lat': row.get('origin_lat'),
-            'dest_lon': row.get('dest_lon'),
-            'dest_lat': row.get('dest_lat'),
-            'last_route_lon': None,
-            'last_route_lat': None,
-            'distance_to_dest': None,
-            'status': f'error: invalid coordinates - {str(e)}',
-            'retries': 0
-        }
+    origin_lon = row['origin_lon']
+    origin_lat = row['origin_lat']
+    dest_lon = row['dest_lon']
+    dest_lat = row['dest_lat']
+    
+    # Prepare request URL
+    access_token = api_settings.get("ACCESS_TOKEN", "")
+    base_url = api_settings.get("BASE_URL", "")
     
     # Get the actual profile value from the profiles dictionary
     profiles = api_settings.get("PROFILES", {})
     profile_value = profiles.get(api_profile, api_profile)
     
-    # Build the complete URL with all parameters
-    url = build_osrm_url(origin_lon, origin_lat, dest_lon, dest_lat, api_settings, profile_value)
+    # Determine start_time parameter
+    if "START_TIME" in api_settings:
+        # Use configured start time
+        start_time_param = api_settings["START_TIME"]
+    elif "start_time" in api_settings.get("CUSTOM_PARAMS", {}):
+        # Use start_time from custom parameters
+        start_time_param = api_settings["CUSTOM_PARAMS"]["start_time"]
+    else:
+        # Use current timestamp as default
+        start_time_param = time.strftime('%Y-%m-%dT%H:%M:%S%%2B00:00')
+    
+    coordinates = f"{origin_lon},{origin_lat};{dest_lon},{dest_lat}"
+    
+    # Build URL with start_time parameter
+    url = f"{base_url}{profile_value}/{coordinates}?overview=false&steps=true&access_token={access_token}&approaches=unrestricted;unrestricted&geometries=polyline6&start_time={start_time_param}"
+    
+    # Add other custom parameters if they exist
+    custom_params = api_settings.get("CUSTOM_PARAMS", {})
+    for param_name, param_value in custom_params.items():
+        if param_name != "start_time" and param_name and param_value:
+            url += f"&{param_name}={param_value}"
     
     # Initialize retry counter
     retry_count = 0
@@ -344,19 +281,6 @@ def validate_routes(df, api_settings, api_profile, batch_size=200, max_workers=7
     # Total rows to process
     total_rows = len(df)
     total_batches = (total_rows + batch_size - 1) // batch_size
-    
-    # Display API configuration being used
-    start_time_display = api_settings.get('START_TIME', 'Current time')
-    
-    st.info(f"""
-    Using OSRM Configuration:
-    - Base URL: {api_settings.get('BASE_URL', 'Not set')}
-    - Profile: {api_profile}
-    - Start Time: {start_time_display}
-    - Overview: {api_settings.get('OVERVIEW', 'false')}
-    - Steps: {api_settings.get('STEPS', 'true')}
-    - Geometries: {api_settings.get('GEOMETRIES', 'polyline6')}
-    """)
     
     st.info(f"Starting validation for {total_rows} routes with batch size {batch_size}...")
     st.info(f"Using {max_workers} workers, {request_delay}s delay between requests")

@@ -253,100 +253,37 @@ def setup_osrm_parameters():
             }
         )
         
-        # Additional OSRM Parameters Section
-        st.subheader("Additional OSRM Parameters")
+        # Start Time Configuration - SIMPLE VERSION
+        st.subheader("Start Time Parameter")
         
-        col1, col2 = st.columns(2)
+        # Simple radio button for start time
+        start_time_choice = st.radio(
+            "Start Time Option",
+            ["Use Current Time", "Use Custom Time", "Add to Custom Parameters"],
+            index=0
+        )
         
-        with col1:
-            # Overview parameter
-            overview_param = st.selectbox(
-                "Overview",
-                ["false", "full", "simplified"],
-                index=0,
-                help="Geometry overview level (false=none, full=detailed, simplified=reduced)"
-            )
+        if start_time_choice == "Use Custom Time":
+            col1, col2 = st.columns(2)
+            with col1:
+                custom_date = st.date_input("Date", value=datetime.now().date())
+            with col2:
+                custom_time = st.time_input("Time", value=datetime.now().time())
             
-            # Steps parameter
-            steps_param = st.selectbox(
-                "Steps",
-                ["true", "false"],
-                index=0,
-                help="Include turn-by-turn instructions"
-            )
-        
-        with col2:
-            # Geometries parameter
-            geometries_param = st.selectbox(
-                "Geometries",
-                ["polyline6", "polyline", "geojson"],
-                index=0,
-                help="Geometry format for route coordinates"
-            )
+            custom_datetime = datetime.combine(custom_date, custom_time)
+            start_time_value = custom_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')
+            st.code(f"start_time: {start_time_value}")
             
-            # Approaches parameter
-            approaches_param = st.text_input(
-                "Approaches",
-                value=api_settings.get("APPROACHES", "unrestricted;unrestricted"),
-                help="Approach constraints for start and end points"
-            )
-        
-        # Start Time Configuration
-        st.subheader("Start Time Configuration")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            start_time_option = st.selectbox(
-                "Start Time Type",
-                ["current", "custom", "offset"],
-                index=0,
-                help="Choose how to set the start_time parameter"
-            )
-        
-        start_time_value = ""
-        
-        with col2:
-            if start_time_option == "custom":
-                custom_date = st.date_input(
-                    "Date",
-                    value=datetime.now().date()
-                )
-                
-                custom_time = st.time_input(
-                    "Time",
-                    value=datetime.now().time()
-                )
-                
-                # Combine date and time
-                custom_datetime = datetime.combine(custom_date, custom_time)
-                start_time_value = custom_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')
-                
-            elif start_time_option == "offset":
-                time_offset_hours = st.number_input(
-                    "Hours Offset",
-                    min_value=-24,
-                    max_value=24,
-                    value=0,
-                    help="Hours from current time"
-                )
-                offset_datetime = datetime.now() + timedelta(hours=time_offset_hours)
-                start_time_value = offset_datetime.strftime('%Y-%m-%dT%H:%M:%S+00:00')
-                
-            else:  # current
-                start_time_value = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
-        
-        with col3:
-            st.text_input(
-                "Generated Start Time",
-                value=start_time_value,
-                disabled=True,
-                help="This value will be used for start_time parameter"
-            )
+        elif start_time_choice == "Add to Custom Parameters":
+            st.info("Add 'start_time' parameter manually in Custom Parameters section below")
+            start_time_value = None
+            
+        else:  # Use Current Time
+            start_time_value = datetime.now().strftime('%Y-%m-%dT%H:%M:%S+00:00')
+            st.code(f"start_time: {start_time_value}")
         
         # Custom parameters section
         st.subheader("Custom Parameters")
-        st.write("Add any additional OSRM parameters not covered above")
         
         # Allow users to add custom parameters
         custom_params = api_settings.get("CUSTOM_PARAMS", {})
@@ -364,14 +301,8 @@ def setup_osrm_parameters():
             num_rows="dynamic",
             key="custom_params_editor",
             column_config={
-                "Parameter": st.column_config.TextColumn(
-                    "Parameter Name",
-                    help="Custom parameter name"
-                ),
-                "Value": st.column_config.TextColumn(
-                    "Parameter Value",
-                    help="Parameter value"
-                )
+                "Parameter": st.column_config.TextColumn("Parameter Name"),
+                "Value": st.column_config.TextColumn("Parameter Value")
             }
         )
         
@@ -389,132 +320,19 @@ def setup_osrm_parameters():
                 if row["Parameter"]:
                     new_custom_params[row["Parameter"]] = row["Value"]
             
-            # Update settings
+            # Update settings - minimal version
             new_settings = {
                 "BASE_URL": base_url,
                 "ACCESS_TOKEN": access_token,
                 "PROFILES": new_profiles,
-                "OVERVIEW": overview_param,
-                "STEPS": steps_param,
-                "GEOMETRIES": geometries_param,
-                "APPROACHES": approaches_param,
-                "START_TIME": start_time_value,
                 "CUSTOM_PARAMS": new_custom_params
             }
+            
+            # Add start_time if configured
+            if start_time_value:
+                new_settings["START_TIME"] = start_time_value
             
             # Save to session state
             st.session_state[SESSION_KEYS["OSRM_API_SETTINGS"]] = new_settings
             
             st.success("OSRM API settings saved successfully!")
-            
-            # Display current configuration
-            with st.expander("Current Configuration Preview"):
-                st.json(new_settings)
-        
-        # Validation control
-        st.subheader("Validation Control")
-        
-        col1, col2, col3 = st.columns([1, 1, 1])
-        
-        with col1:
-            # Data preview button
-            if st.button("Show Data Preview"):
-                st.dataframe(prepared_data.head(10))
-        
-        with col2:
-            # Data sample count
-            sample_count = st.number_input(
-                "Sample Size for Validation", 
-                min_value=10, 
-                max_value=len(prepared_data), 
-                value=min(len(prepared_data), 100),
-                help="Use a subset of data for quick validation"
-            )
-        
-        with col3:
-            # Use sample checkbox
-            use_sample = st.checkbox(
-                "Use Sample", 
-                value=len(prepared_data) > 100,
-                help="Validate using a subset of data for quick testing"
-            )
-        
-        # Start validation button
-        start_validation = st.button("Start OSRM API Validation")
-        
-        if start_validation:
-            # Check if OSRM API settings are configured
-            if SESSION_KEYS["OSRM_API_SETTINGS"] not in st.session_state:
-                st.error("Please configure OSRM API settings before starting validation.")
-                return
-                
-            api_settings = st.session_state[SESSION_KEYS["OSRM_API_SETTINGS"]]
-            
-            # Check if access token is provided
-            if not api_settings.get("ACCESS_TOKEN"):
-                st.error("Please provide an Access Token in OSRM API settings.")
-                return
-            
-            # Use full data or sample based on checkbox
-            validation_data = prepared_data.sample(sample_count) if use_sample else prepared_data
-            
-            # Display info
-            st.info(f"""
-            Starting validation with the following settings:
-            - OSRM Profile: {api_profile}
-            - Data: {"Sample of " + str(sample_count) + " routes" if use_sample else "All data (" + str(len(prepared_data)) + " routes)"}
-            - Batch Size: {batch_size}
-            - Thread Workers: {max_workers}
-            - Request Delay: {request_delay} seconds
-            """)
-            
-            # Run validation
-            with st.spinner("Performing OSRM API validation..."):
-                try:
-                    # Start validation
-                    start_time = time.time()
-                    
-                    # Run validation
-                    results_df, validation_stats = validate_routes(
-                        validation_data, 
-                        api_settings,
-                        api_profile, 
-                        batch_size=batch_size, 
-                        max_workers=max_workers, 
-                        request_delay=request_delay
-                    )
-                    
-                    end_time = time.time()
-                    execution_time = end_time - start_time
-                    
-                    # Save results to session state
-                    st.session_state[SESSION_KEYS["VALIDATION_RESULTS"]] = results_df
-                    st.session_state[SESSION_KEYS["VALIDATION_STATS"]] = validation_stats
-                    
-                    # Display success message
-                    st.success(f"""
-                    Validation completed in {execution_time:.1f} seconds!
-                    - Successful routes: {validation_stats['successful_routes']} ({validation_stats['success_rate']:.1f}%)
-                    - Failed routes: {validation_stats['failed_routes']}
-                    """)
-                    
-                    # Preview results
-                    st.subheader("Validation Results Preview")
-                    st.dataframe(results_df.head(10))
-                    
-                    # Download results button
-                    st.download_button(
-                        "Download Validation Results",
-                        dataframe_to_csv(results_df),
-                        f"osrm_validation_{api_profile}_{get_timestamp()}.csv",
-                        "text/csv",
-                        key='download-validation-results'
-                    )
-                    
-                    # Suggest next step
-                    st.info("Please open the 'Analysis' tab to view detailed analysis of validation results.")
-                
-                except Exception as e:
-                    st.error(f"Error during validation: {str(e)}")
-    else:
-        st.warning("No data prepared yet. Please upload and prepare data in the 'Data Upload & Preparation' tab first.")
